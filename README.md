@@ -15,7 +15,9 @@ Don't forget to [install rustup](https://rustup.rs/) :)
 0. Use `$ cargo run -- --help` to see the help messages
 1. Specify the message, fee, and optionally a change address:
     - Your message may be between 12 and 74 characters.
-    - `$ cargo run -- -m "when true simplicity is gained" -f 10000 -c YOUR_CHANGE_ADDRESS`
+    - `$ cargo run -- -m "when true simplicity is gained" -f 10000`
+    - Specify `-c YOUR_CHANGE_ADDRESS` to receive change. Otherwise, excess
+      sats will be donated to the creator of the tool :)
 2. The tool will print an address to fund, and then keep running
 3. Send sats to that address
 4. The tool will build and broadcast the transaction, and send funds to the
