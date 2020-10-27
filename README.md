@@ -10,6 +10,8 @@ KIND.
 
 ### Flow
 
+Don't forget to [install rustup](https://rustup.rs/) :)
+
 0. Use `$ cargo run -- --help` to see the help messages
 1. Specify the message, fee, and optionally a change address:
     - Your message may be between 12 and 74 characters.
