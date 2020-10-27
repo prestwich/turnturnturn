@@ -1,0 +1,31 @@
+[package]
+name = "turnturnturn"
+version = "0.1.0"
+authors = ["James Prestwich <james@prestwi.ch>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+# coins-core = { git = "https://github.com/summa-tx/bitcoins-rs.git", branch = "main" }
+# coins-bip32 = { git = "https://github.com/summa-tx/bitcoins-rs.git", branch = "main", default-features = false }
+# bitcoins = { git = "https://github.com/summa-tx/bitcoins-rs.git", branch = "main", default-features = false }
+# bitcoins-provider = { git = "https://github.com/summa-tx/bitcoins-rs.git", branch = "main", default-features = false, features = ["esplora"] }
+
+coins-core = { path = "../bitcoins/core" }
+coins-bip32 = { path = "../bitcoins/bip32", default-features = false }
+bitcoins = { path = "../bitcoins/bitcoins", default-features = false }
+bitcoins-provider = { path = "../bitcoins/provider", default-features = false, features = ["esplora"] }
+
+lazy_static = "1.4.0"
+rand = "0.7.3"
+serde = "1.0.117"
+serde_json = "1.0.59"
+hex = "0.4.2"
+tokio = {version = "0.2.22", features = ["full"]}
+clap = "3.0.0-beta.2"
+
+[features]
+default = ["mainnet"]
+mainnet = ["coins-bip32/mainnet", "bitcoins/mainnet", "bitcoins-provider/mainnet"]
+testnet = ["coins-bip32/testnet", "bitcoins/testnet", "bitcoins-provider/testnet"]
