@@ -247,7 +247,7 @@ async fn process(state: &State) -> Result<(), Box<dyn std::error::Error>> {
 
     let tx = get_signed_tx(&utxos[0], None, state.fee, &state);
     println!("TX blob is\n{:?}", tx.serialize_hex());
-    println!("TXID is {}", tx.txid());
+    println!("TXID is {:?}", tx.txid());
 
     if state.broadcast {
         println!(
