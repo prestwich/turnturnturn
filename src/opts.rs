@@ -1,8 +1,8 @@
-use clap::Clap;
 use bitcoins::prelude::*;
+use clap::Clap;
 
 #[derive(Clap)]
-#[clap(version = "1.0", author = "James Prestwich <james@summa.one>")]
+#[clap(version = "1.1", author = "James Prestwich <james@summa.one>")]
 pub struct Opts {
     #[clap(short, long)]
     pub message: Option<String>,
@@ -10,6 +10,8 @@ pub struct Opts {
     pub fee: Option<u64>,
     #[clap(short, long)]
     pub change_address: Option<String>,
+    #[clap(short, long)]
+    pub no_broadcast: bool,
 }
 
 impl Opts {
@@ -22,7 +24,7 @@ impl Opts {
         if self.fee.is_some() {
             let f = self.fee.unwrap();
             if f > 50_000_000 {
-                return Err("Unreasonably high fee".into())
+                return Err("Unreasonably high fee".into());
             }
         }
 

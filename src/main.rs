@@ -1,6 +1,8 @@
 use bitcoins::prelude::*;
 use bitcoins_provider::prelude::*;
-use coins_bip32::{curve::SigSerialize, HasPrivkey, HasPubkey, Privkey, Pubkey, SigningKey};
+
+use coins_bip32::prelude::*;
+
 use lazy_static::lazy_static;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -21,7 +23,9 @@ lazy_static! {
 
 #[cfg(all(not(feature = "mainnet"), feature = "testnet"))]
 lazy_static! {
-    static ref DONATION_ADDRESS: Address = "tb1qm5tfegjevj27yvvna9elym9lnzcf0zraxgl8z2".parse().unwrap();
+    static ref DONATION_ADDRESS: Address = "tb1qm5tfegjevj27yvvna9elym9lnzcf0zraxgl8z2"
+        .parse()
+        .unwrap();
 }
 
 lazy_static! {
@@ -63,22 +67,21 @@ mod key_ser {
         format!("0x{}", hex::encode(buf))
     }
 
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Privkey, D::Error>
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<SigningKey, D::Error>
     where
         D: Deserializer<'de>,
     {
         let s: &str = Deserialize::deserialize(deserializer)?;
         let buf = deserialize_hex(s).map_err(|e| serde::de::Error::custom(e.to_string()))?;
-        let mut k = [0u8; 32];
-        k.copy_from_slice(&buf[..32]);
-        Ok(Privkey::from_bytes(k).unwrap())
+
+        Ok(SigningKey::from_bytes(&buf[..32]).unwrap())
     }
 
-    pub fn serialize<S>(d: &Privkey, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<S>(d: &SigningKey, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        let s: &str = &serialize_hex(d.privkey_bytes().as_ref());
+        let s: &str = &serialize_hex(d.to_bytes().as_ref());
         serializer.serialize_str(s)
     }
 }
@@ -86,19 +89,29 @@ mod key_ser {
 #[derive(Serialize, Deserialize, Debug)]
 struct State {
     #[serde(with = "key_ser")]
-    key: Privkey,
+    key: SigningKey,
     message: String,
     fee: u64,
     change_address: Address,
+    broadcast: bool,
+}
+
+// dirty hacks b/c of underlying bug
+struct Wrap(VerifyingKey);
+
+impl AsRef<VerifyingKey> for Wrap {
+    fn as_ref(&self) -> &VerifyingKey {
+        &self.0
+    }
 }
 
 impl State {
-    fn pubkey(&self) -> Pubkey {
-        self.key.derive_verifying_key().unwrap()
+    fn pubkey(&self) -> VerifyingKey {
+        self.key.verifying_key()
     }
 
     fn spk(&self) -> ScriptPubkey {
-        ScriptPubkey::p2wpkh(&self.pubkey())
+        ScriptPubkey::p2wpkh(&Wrap(self.pubkey()))
     }
 
     fn address(&self) -> Address {
@@ -106,8 +119,9 @@ impl State {
     }
 }
 
-fn new_ephemeral_key() -> Privkey {
-    Privkey::from_bytes(rand::thread_rng().gen()).unwrap()
+fn new_ephemeral_key() -> SigningKey {
+    let buf: [u8; 32] = rand::thread_rng().gen();
+    SigningKey::from_bytes(buf.as_ref()).unwrap()
 }
 
 fn read_in_progress() -> Option<State> {
@@ -121,7 +135,10 @@ fn read_in_progress() -> Option<State> {
 }
 
 fn clear_in_progress(new_name: &str) {
-    fs::DirBuilder::new().recursive(true).create("./completed").expect("folder ok");
+    fs::DirBuilder::new()
+        .recursive(true)
+        .create("./completed")
+        .expect("folder ok");
     let target = format!("./completed/{}.json", new_name);
     fs::rename("./inProgress.json", &target).expect("mv ok");
 }
@@ -133,7 +150,7 @@ fn write_in_progress(state: &State) {
 }
 
 fn build_transaction(
-    utxo: &UTXO,
+    utxo: &Utxo,
     change_address: Option<Address>,
     message: &str,
     fee: u64,
@@ -154,26 +171,30 @@ fn build_transaction(
 }
 
 fn get_signed_tx(
-    utxo: &UTXO,
+    utxo: &Utxo,
     change_address: Option<Address>,
     fee: u64,
     state: &State,
 ) -> BitcoinTx {
     let builder = build_transaction(utxo, change_address, &state.message, fee);
 
-    let tx = builder
-        .clone()
-        .build_witness()
-        .unwrap();
+    let tx = builder.clone().build_witness().unwrap();
     let sighash_args = utxo.witness_sighash_args(0, Sighash::All).unwrap();
-    let sighash = tx.sighash(&sighash_args).unwrap();
+
+    let mut writer = vec![];
+    tx.write_witness_sighash_preimage(&mut writer, &sighash_args)
+        .unwrap();
+
+    let digest = Hash256::new().chain(&writer);
+    let sig: Signature = state.key.sign_digest(digest);
+
     let mut signature = vec![];
-    signature.extend(state.key.sign_digest(sighash.into()).unwrap().to_der());
+    signature.extend(sig.to_der().as_bytes());
     signature.push(Sighash::All as u8);
 
     let mut witness: Witness = Vec::new();
     witness.push(signature.into());
-    witness.push(state.pubkey().pubkey_bytes().as_ref().into());
+    witness.push(state.pubkey().to_bytes().as_ref().into());
 
     builder
         .extend_witnesses(std::iter::once(witness))
@@ -198,9 +219,14 @@ async fn new(options: opts::Opts) -> Result<(), Box<dyn std::error::Error>> {
         message,
         fee: options.fee.unwrap_or(5000),
         change_address,
+        broadcast: !options.no_broadcast,
     };
     write_in_progress(&state);
-    println!("Please send AT LEAST {:?} satoshi to {}", state.fee, state.address());
+    println!(
+        "Please send AT LEAST {:?} satoshi to {}",
+        state.fee,
+        state.address()
+    );
     resume(&state).await?;
     Ok(())
 }
@@ -221,8 +247,17 @@ async fn process(state: &State) -> Result<(), Box<dyn std::error::Error>> {
 
     let tx = get_signed_tx(&utxos[0], None, state.fee, &state);
     println!("TX blob is\n{:?}", tx.serialize_hex());
-    println!("\n\nBroadcasting tx: {:?}", tx.txid().reversed().serialize_hex());
-    PROVIDER.broadcast(tx).await.unwrap();
+    println!("TXID is {}", tx.txid());
+
+    if state.broadcast {
+        println!(
+            "\n\nBroadcasting tx: {:?}",
+            tx.txid().reversed().serialize_hex()
+        );
+        PROVIDER.broadcast(tx).await.unwrap();
+    } else {
+        println!("\n\n TX not broadscast. Please manually broadcast");
+    }
 
     Ok(())
 }
@@ -248,7 +283,7 @@ async fn logic() -> Result<(), Box<dyn std::error::Error>> {
 async fn main() {
     println!();
     match logic().await {
-        Ok(()) => {},
+        Ok(()) => {}
         Err(e) => println!("{}", e),
     }
 }
